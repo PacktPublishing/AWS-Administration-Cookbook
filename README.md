@@ -10,7 +10,7 @@ Moving on, you will find out how to use the compute service to enable consistent
 By the end of the book, you will be able to easily administer your AWS cloud.
 
 ## Instructions and Navigation
-All of the code is organized into folders. Each folder starts with a number followed by the application name. For example, Chapter02.
+All of the code is organized into folders. For example, Chapter03.
 
 
 
