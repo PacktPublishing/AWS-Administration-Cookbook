@@ -1,0 +1,166 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Create an EFS file system and endpoints.
+
+Parameters:
+  VpcId:
+    Description: VPC ID that contains the subnets that will access the file system
+    Type: AWS::EC2::VPC::Id
+
+  SubnetIds:
+    Description: Subnet IDs allowed to access the EFS file system
+    Type: List<AWS::EC2::Subnet::Id>
+
+  # NOTE: The following parameters are only needed for the client instance.
+  MountPoint:
+    Description: The path on disk to mount the EFS file system
+    Type: String
+    Default: /mnt/efs
+
+  KeyName:
+    Description: The SSH key pair allowed to connect to the client instance
+    Type: AWS::EC2::KeyPair::KeyName
+
+Resources:
+  FileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      FileSystemTags:
+        - Key: Name
+          Value:
+            Fn::Sub: "${AWS::StackName} EFS File System"
+      PerformanceMode: generalPurpose # Cannot be changed after creation
+
+  MountTargetA:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId:
+        Ref: FileSystem
+      SecurityGroups: # Max 5
+        - Fn::GetAtt: MountTargetSecurityGroup.GroupId
+      SubnetId:
+        Fn::Select: [ 0, Ref: SubnetIds  ]
+
+  MountTargetB:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId:
+        Ref: FileSystem
+      SecurityGroups:
+        - Fn::GetAtt: MountTargetSecurityGroup.GroupId
+      SubnetId:
+        Fn::Select: [ 1, Ref: SubnetIds  ]
+
+  # NOTE: If you are deploying in a region with more than two AZs, you
+  # would add additional mount points for additional various subnets here.
+
+  MountTargetSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EFS endpoint security group
+      Tags:
+        - Key: Name
+          Value: MountTargetSecurityGroup
+      VpcId:
+        Ref: VpcId
+
+  MountTargetAccessSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EFS endpoint access security group
+      Tags:
+        - Key: Name
+          Value: MountTargetAccessSecurityGroup
+      VpcId:
+        Ref: VpcId
+
+  MountTargetIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      FromPort: 2049
+      GroupId:
+        Fn::GetAtt: MountTargetSecurityGroup.GroupId
+      IpProtocol: tcp
+      SourceSecurityGroupId:
+        Fn::GetAtt: MountTargetAccessSecurityGroup.GroupId
+      ToPort: 2049
+
+  MountTargetEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      DestinationSecurityGroupId:
+        Fn::GetAtt: MountTargetAccessSecurityGroup.GroupId
+      FromPort: 2049
+      GroupId:
+        Fn::GetAtt: MountTargetSecurityGroup.GroupId
+      IpProtocol: tcp
+      ToPort: 2049
+
+  MountTargetAccessEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      DestinationSecurityGroupId:
+        Fn::GetAtt: MountTargetSecurityGroup.GroupId
+      FromPort: 2049
+      GroupId:
+        Fn::GetAtt: MountTargetAccessSecurityGroup.GroupId
+      IpProtocol: tcp
+      ToPort: 2049
+
+  MountTargetAccessIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      FromPort: 22
+      GroupId:
+        Fn::GetAtt: MountTargetAccessSecurityGroup.GroupId
+      IpProtocol: tcp
+      CidrIp: 0.0.0.0/0
+      ToPort: 22
+
+  # NOTE: The following resources are only for confirming your EFS setup.
+  # If you just want a working EFS template, remove these resources.
+  LaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    DependsOn: FileSystem
+    Properties:
+      ImageId: ami-1e299d7e # TODO: Map AMI IDs accross all regions
+      SecurityGroups:
+        - Ref: MountTargetAccessSecurityGroup
+      InstanceType: t2.micro
+      KeyName:
+        Ref: KeyName
+      UserData:
+        Fn::Base64:
+          Fn::Sub: |
+            #!/bin/bash -xe
+            mkdir -p ${MountPoint}
+            echo 'Waiting for mount target DNS to propagate'
+            sleep 90
+            echo '${FileSystem}.efs.${AWS::Region}.amazonaws.com:/ ${MountPoint} nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 0 0' >> /etc/fstab
+            mount -a
+            chown ec2-user: ${MountPoint}
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn: MountTargetA # Ensure created after mount target(s).
+    Properties:
+      MinSize: 2
+      MaxSize: 2
+      LaunchConfigurationName:
+        Ref: LaunchConfiguration
+      Tags:
+        - Key: Name
+          Value:
+            Fn::Sub: "${AWS::StackName} EFS Client"
+          PropagateAtLaunch: true
+      VPCZoneIdentifier:
+        Ref: SubnetIds
+
+Outputs:
+  FileSystemId:
+    Description: The EFS FileSystem ID
+    Value:
+      Ref: FileSystem
+  MountTargetAccessSecurityGroupId:
+    Description: The Security Group ID allowed to access the mount targets
+    Value:
+      Ref: MountTargetAccessSecurityGroup

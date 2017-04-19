@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Create an Auto Scaling Group
+
+Parameters:
+  SubnetIds:
+    Description: Subnet IDs where instances can be launched
+    Type: List<AWS::EC2::Subnet::Id>
+
+  AmiId:
+    Description: The application server's AMI ID
+    Type: AWS::EC2::Image::Id
+    Default: ami-9be6f38c # AWS Linux in us-east-1
+
+  InstanceType:
+    Description: The type of instance to launch
+    Type: String
+    Default: t2.micro
+
+  MinSize:
+    Description: Minimum number of instances in the group
+    Type: Number
+    Default: 1
+
+  MaxSize:
+    Description: Maximum number of instances in the group
+    Type: Number
+    Default: 4
+
+  ThresholdCPUHigh:
+    Description: Launch new instances when CPU utilization is over this threshold
+    Type: Number
+    Default: 60
+
+  ThresholdCPULow:
+    Description: Remove instances when CPU utilization is under this threshold
+    Type: Number
+    Default: 40
+
+  ThresholdMinutes:
+    Description: Launch new instances when over the CPU threshold for this many minutes
+    Type: Number
+    Default: 5
+
+Resources:
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MinSize: !Ref MinSize
+      MaxSize: !Ref MaxSize
+      LaunchConfigurationName: !Ref LaunchConfiguration
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName} server"
+          PropagateAtLaunch: true
+      VPCZoneIdentifier: !Ref SubnetIds
+
+  LaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          # This will be run on startup, launch your application here
+
+  ScaleUpPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      Cooldown: 60
+      ScalingAdjustment: 1
+
+  ScaleDownPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      Cooldown: 60
+      ScalingAdjustment: -1
+
+  CPUHighAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref ScaleUpPolicy
+      AlarmDescription: Scale up on CPU load
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref AutoScalingGroup
+      EvaluationPeriods: !Ref ThresholdMinutes
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Period: 60
+      Statistic: Average
+      Threshold: !Ref ThresholdCPUHigh
+
+  CPULowAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref ScaleDownPolicy
+      AlarmDescription: Scale down on CPU load
+      ComparisonOperator: LessThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref AutoScalingGroup
+      EvaluationPeriods: !Ref ThresholdMinutes
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Period: 60
+      Statistic: Average
+      Threshold: !Ref ThresholdCPULow

@@ -1,0 +1,21 @@
+{
+  "builders": [
+    {
+      "type": "amazon-ebs",
+      "instance_type": "t2.micro",
+      "region": "us-east-1",
+      "source_ami": "ami-9be6f38c",
+      "ssh_username": "ec2-user",
+      "ami_name": "aws-linux-apache {{timestamp}}"
+    }
+  ],
+  "provisioners": [
+    {
+      "type": "shell",
+      "inline": [
+        "sudo yum install -y httpd",
+        "sudo chkconfig httpd on"
+      ]
+    }
+  ]
+}

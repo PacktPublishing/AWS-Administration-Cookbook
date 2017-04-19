@@ -1,0 +1,41 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: This template creates a role that can be assumed from another account.
+
+Parameters:
+  SourceAccountNumber:
+    Type: String
+    Description: The AWS account number to grant access to assume the role.
+    AllowedPattern: "[0-9]+"
+    MaxLength: "12"
+    MinLength: "12"
+
+Resources:
+  CrossAccountRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      Path: "/"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ""
+            Action: "sts:AssumeRole"
+            Effect: Allow
+            Principal:
+              AWS:
+                !Sub "arn:aws:iam::${SourceAccountNumber}:root"
+      Policies:
+        - PolicyName: DoEverything
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - "*"
+                Effect: Allow
+                Resource: "*"
+                Sid: DoEverything
+
+Outputs:
+  RoleARN:
+    Description: The Role ARN that can be assumed by the other account.
+    Value: !GetAtt CrossAccountRole.Arn

@@ -1,0 +1,32 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  DomainName:
+    Description: Your domain name (example.org)
+    Type: String
+Resources:
+  DNSHostedZone: 
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: !Ref DomainName
+  DNSRecords:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneId:
+        Ref: DNSHostedZone
+      RecordSets:
+      - Name: !Ref DomainName
+        Type: A
+        TTL: 60
+        ResourceRecords:
+          - "127.0.0.1"
+      - Name: !Ref DomainName
+        Type: MX
+        TTL: 60
+        ResourceRecords:
+          - "10 smtp.example.org"
+          - "20 smtp.example.org"
+      - Name: !Ref DomainName
+        Type: TXT
+        TTL: 60
+        ResourceRecords:
+          - '"v=spf1 include:spf.example.org ?all"'

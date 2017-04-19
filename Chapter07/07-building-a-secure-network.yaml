@@ -1,0 +1,287 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: VPC for a public facing app, separate private & public subnets across 2 zones. Allow inbound SSH/HTTPS/HTTP.
+
+Parameters:
+  AvailabilityZone1:
+    Description: Availability zone 1 name (e.g. us-east-1a)
+    Type: AWS::EC2::AvailabilityZone::Name
+  AvailabilityZone2:
+    Description: Availability zone 2 name (e.g. us-east-1b)
+    Type: AWS::EC2::AvailabilityZone::Name
+  VPCCIDR:
+    Description: CIDR block for VPC
+    Type: String
+    Default: "172.31.0.0/21" # 2048 IP addresses
+  PublicSubnetACIDR:
+    Description: CIDR block for public subnet A
+    Type: String
+    Default: "172.31.0.0/23" # 512 IP address
+  PublicSubnetBCIDR:
+    Description: CIDR block for public subnet B
+    Type: String
+    Default: "172.31.2.0/23" # 512 IP address
+  PrivateSubnetACIDR:
+    Description: CIDR block for private subnet A
+    Type: String
+    Default: "172.31.4.0/23" # 512 IP address
+  PrivateSubnetBCIDR:
+    Description: CIDR block for private subnet B
+    Type: String
+    Default: "172.31.6.0/23" # 512 IP address
+
+Resources:
+  # VPC & subnets
+  ExampleVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - { Key: Name, Value: Example VPC }
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone1
+      CidrBlock: !Ref PublicSubnetACIDR
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref ExampleVPC
+      Tags:
+        - { Key: Name, Value: Public Subnet A }
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone2
+      CidrBlock: !Ref PublicSubnetBCIDR
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref ExampleVPC
+      Tags:
+        - { Key: Name, Value: Public Subnet B }
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone1
+      CidrBlock: !Ref PrivateSubnetACIDR
+      VpcId: !Ref ExampleVPC
+      Tags:
+        - { Key: Name, Value: Private Subnet A }
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone2
+      CidrBlock: !Ref PrivateSubnetBCIDR
+      VpcId: !Ref ExampleVPC
+      Tags:
+        - { Key: Name, Value: Private Subnet B }
+
+  # Internet Gateway
+  ExampleIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - { Key: Name, Value: Example Internet Gateway }
+  IGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    DependsOn: ExampleIGW
+    Properties:
+      VpcId: !Ref ExampleVPC
+      InternetGatewayId: !Ref ExampleIGW
+
+  # Public Route Table
+  # Add a route for Internet bound traffic pointing to our IGW
+  # A route for VPC bound traffic will automatically be added
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ExampleVPC
+      Tags:
+        - { Key: Name, Value: Public Route Table }
+  PublicInternetRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      GatewayId: !Ref ExampleIGW
+      DestinationCidrBlock: "0.0.0.0/0"
+  RouteAssociationPublicA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetA
+  RouteAssociationPublicB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetB
+
+  # Private Route Table
+  # We don't add any entries to this route table because there is no NAT gateway
+  # However a route for VPC bound traffic will automatically be added
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ExampleVPC
+      Tags:
+        - { Key: Name, Value: Private Route Table }
+  PrivateSubnetAssociationA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetA
+  PrivateSubnetAssociationB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetB
+
+  # Public NACL
+  PublicNACL:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref ExampleVPC
+      Tags:
+        - { Key: Name, Value: Example Public NACL }
+  # Allow outbound to everywhere
+  NACLRulePublicEgressAllowAll:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: "0.0.0.0/0"
+      Egress: true
+      Protocol: 6
+      PortRange: { From: 1, To: 65535 }
+      RuleAction: allow
+      RuleNumber: 100
+      NetworkAclId: !Ref PublicNACL
+  # Allow outbound to VPC on all protocols
+  NACLRulePublicEgressAllowAllToVPC:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      Egress: true
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 200
+      NetworkAclId: !Ref PublicNACL
+  # Allow inbound from everywhere to ephemeral ports (above 1024)
+  NACLRulePublicIngressAllowEphemeral:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: "0.0.0.0/0"
+      Protocol: 6
+      PortRange: { From: 1024, To: 65535 }
+      RuleAction: allow
+      RuleNumber: 100
+      NetworkAclId: !Ref PublicNACL
+  # Allow inbound from everywhere on port 22 for SSH
+  NACLRulePublicIngressAllowSSH:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: "0.0.0.0/0"
+      Protocol: 6
+      PortRange: { From: 22, To: 22 }
+      RuleAction: allow
+      RuleNumber: 200
+      NetworkAclId: !Ref PublicNACL
+  # Allow inbound from everywhere on port 443 for HTTPS
+  NACLRulePublicIngressAllowHTTPS:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: "0.0.0.0/0"
+      Protocol: 6
+      PortRange: { From: 443, To: 443 }
+      RuleAction: allow
+      RuleNumber: 300
+      NetworkAclId: !Ref PublicNACL
+  # Allow inbound from everywhere on port 80 for HTTP
+  NACLRulePublicIngressAllowHTTP:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: "0.0.0.0/0"
+      Protocol: 6
+      PortRange: { From: 80, To: 80 }
+      RuleAction: allow
+      RuleNumber: 400
+      NetworkAclId: !Ref PublicNACL
+  # Allow inbound from VPC on all protocols
+  NACLRulePublicIngressAllowFromVPC:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 500
+      NetworkAclId: !Ref PublicNACL
+  NACLAssociationPublicSubnetA:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref PublicNACL
+      SubnetId: !Ref PublicSubnetA
+  NACLAssociationPublicSubnetB:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref PublicNACL
+      SubnetId: !Ref PublicSubnetB
+
+  # Private NACL
+  PrivateNACL:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref ExampleVPC
+      Tags:
+        - { Key: Name, Value: Example Private NACL }
+  # Allow all protocols from VPC range
+  NACLRulePrivateIngressAllowVPC:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 100
+      NetworkAclId: !Ref PrivateNACL
+  # Allow TCP responses from everywhere
+  NACLRulePrivateIngressAllowEphemeral:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: "0.0.0.0/0"
+      Protocol: 6
+      PortRange: { From: 1024, To: 65535 }
+      RuleAction: allow
+      RuleNumber: 200
+      NetworkAclId: !Ref PrivateNACL
+  # Allow outbound traffic to everywhere, all protocols
+  NACLRulePrivateEgressAllowVPC:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: "0.0.0.0/0"
+      Egress: true
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 100
+      NetworkAclId: !Ref PrivateNACL
+  NACLAssociationPrivateSubnetA:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref PrivateNACL
+      SubnetId: !Ref PrivateSubnetA
+  NACLAssociationPrivateSubnetB:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref PrivateNACL
+      SubnetId: !Ref PrivateSubnetB
+
+Outputs:
+  ExampleVPC:
+    Value: !Ref ExampleVPC
+  PublicSubnetA:
+    Value: !Ref PublicSubnetA
+  PublicSubnetB:
+    Value: !Ref PublicSubnetB
+  PrivateRouteTable:
+    Value: !Ref PrivateRouteTable
+  PublicRouteTable:
+    Value: !Ref PublicRouteTable
+  PrivateSubnetA:
+    Value: !Ref PrivateSubnetA
+  PrivateSubnetB:
+    Value: !Ref PrivateSubnetB
+

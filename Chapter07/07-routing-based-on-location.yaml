@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  DomainName:
+    Description: Your domain name (example.org)
+    Type: String
+  LoadBalancerDNSNameRegionA:
+    Description: The DNS name of your ELB in region A
+    Type: String
+  LoadBalancerHostedZoneRegionA:
+    Description: The Hosted Zone ID of your ELB in region A
+    Type: String
+  LoadBalancerDNSNameRegionB:
+    Description: The DNS name of your ELB in region B
+    Type: String
+  LoadBalancerHostedZoneRegionB:
+    Description: The Hosted Zone ID of your ELB in region B
+    Type: String
+
+Resources:
+  DNSHostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: !Ref DomainName
+
+  RegionAHealthCheck:
+    Type: AWS::Route53::HealthCheck
+    Properties:
+      HealthCheckConfig:
+        FailureThreshold: 3
+        FullyQualifiedDomainName: !Ref LoadBalancerDNSNameRegionA
+        Port: 80
+        RequestInterval: 30
+        ResourcePath: "/"
+        Type: HTTP
+      HealthCheckTags:
+        - { Key: Name, Value: Region A Health Check }
+  RegionBHealthCheck:
+    Type: AWS::Route53::HealthCheck
+    Properties:
+      HealthCheckConfig:
+        FailureThreshold: 3
+        FullyQualifiedDomainName: !Ref LoadBalancerDNSNameRegionB
+        Port: 80
+        RequestInterval: 30
+        ResourcePath: "/"
+        Type: HTTP
+      HealthCheckTags:
+        - { Key: Name, Value: Region B Health Check }
+
+  RegionAPrimary:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Name: !Join [ ., [ a, Ref: DomainName ] ]
+      Type: A
+      HostedZoneId: !Ref DNSHostedZone
+      AliasTarget:
+        HostedZoneId: !Ref LoadBalancerHostedZoneRegionA
+        DNSName: !Ref LoadBalancerDNSNameRegionA
+      Failover: PRIMARY
+      SetIdentifier: primary-region-a
+      HealthCheckId: !Ref RegionAHealthCheck
+  RegionBPrimary:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Name: !Join [ ., [ b, Ref: DomainName ] ]
+      Type: A
+      HostedZoneId: !Ref DNSHostedZone
+      AliasTarget:
+        HostedZoneId: !Ref LoadBalancerHostedZoneRegionB
+        DNSName: !Ref LoadBalancerDNSNameRegionB
+      Failover: PRIMARY
+      SetIdentifier: primary-region-b
+      HealthCheckId: !Ref RegionBHealthCheck
+
+  RegionAFailover:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Name: !Join [ ., [ a, Ref: DomainName ] ]
+      Type: A
+      HostedZoneId: !Ref DNSHostedZone
+      AliasTarget:
+        HostedZoneId: !Ref LoadBalancerHostedZoneRegionB
+        DNSName: !Ref LoadBalancerDNSNameRegionB
+      Failover: SECONDARY
+      SetIdentifier: secondary-region-a
+  RegionBFailover:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Name: !Join [ ., [ b, Ref: DomainName ] ]
+      Type: A
+      HostedZoneId: !Ref DNSHostedZone
+      AliasTarget:
+        HostedZoneId: !Ref LoadBalancerHostedZoneRegionA
+        DNSName: !Ref LoadBalancerDNSNameRegionA
+      Failover: SECONDARY
+      SetIdentifier: secondary-region-b
+
+  NorthAmericaGeolocation:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Name: !Ref DomainName
+      Type: A
+      HostedZoneId: !Ref DNSHostedZone
+      AliasTarget:
+        HostedZoneId: !Ref DNSHostedZone
+        DNSName: !Join [ ., [ a, Ref: DomainName ] ]
+      GeoLocation:
+        ContinentCode: NA # North America
+      SetIdentifier: geolocation-region-a
+  RestOfWorldGeolocation:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Name: !Ref DomainName
+      Type: A
+      HostedZoneId: !Ref DNSHostedZone
+      AliasTarget:
+        HostedZoneId: !Ref DNSHostedZone
+        DNSName: !Join [ ., [ b, Ref: DomainName ] ]
+      GeoLocation:
+        CountryCode: "*" # Rest of world
+      SetIdentifier: geolocation-region-b
+

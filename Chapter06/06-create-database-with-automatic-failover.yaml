@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  VPCId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC where DB will launch
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets where the DB will launch (pick at least 2)
+  SecurityGroupAllowCidr:
+    Type: String
+    Description: Allow this CIDR block to access the DB
+    Default: "172.30.0.0/16"
+  DBUsername:
+    Type: String
+    Description: Username to access the database
+    MinLength: 1
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    ConstraintDescription: must start with a letter, must be alphanumeric
+  DBPassword:
+    Type: String
+    Description: Password to access the database
+    MinLength: 1
+    AllowedPattern: "[a-zA-Z0-9]*"
+    NoEcho: true
+    ConstraintDescription: must be alphanumeric
+  DBInstanceClass:
+    Type: String
+    Description: The instance type to use for this database
+    Default: db.t2.micro
+  DBStorageAmount:
+    Type: Number
+    Description: Amount of storage to allocate (in GB)
+    Default: 10
+  DBStorageType:
+    Type: String
+    Description: Type of storage volume to use (standard [magnetic] or gp2)
+    Default: standard
+    AllowedValues:
+      - standard
+      - gp2
+  DBEngineVersion:
+    Type: String
+    Description: DB engine version
+    Default: "5.7.11"
+  DBPort:
+    Type: Number
+    Description: Port number to allocate
+    Default: 3306
+    MinValue: 1150
+    MaxValue: 65535
+  DBMultiAZ:
+    Type: String
+    Description: Should this DB be deployed in Multi-AZ configuration?
+    Default: true
+    AllowedValues:
+      - true
+      - false
+  DBBackupRetentionPeriod:
+    Type: Number
+    Description: How many days to keep backups (0 disables backups)
+    Default: 1
+    MinValue: 0
+    MaxValue: 35
+Resources:
+  ExampleDBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Example security group for inbound access to DB
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          CidrIp: !Ref SecurityGroupAllowCidr
+          FromPort: !Ref DBPort
+          ToPort: !Ref DBPort
+      VpcId: !Ref VPCId
+  ExampleDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Example subnet group for example DB
+      SubnetIds:
+        - Fn::Select: [ 0, Ref: SubnetIds ]
+        - Fn::Select: [ 1, Ref: SubnetIds ]
+  ExampleDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: !Ref DBStorageAmount
+      BackupRetentionPeriod: !Ref DBBackupRetentionPeriod
+      DBInstanceClass: !Ref DBInstanceClass
+      DBSubnetGroupName: !Ref ExampleDBSubnetGroup
+      Engine: mysql
+      EngineVersion: !Ref DBEngineVersion
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      MultiAZ: !Ref DBMultiAZ
+      StorageType: !Ref DBStorageType
+      VPCSecurityGroups:
+        - !GetAtt ExampleDBSecurityGroup.GroupId
+Outputs:
+  ExampleDbHostname:
+    Value: !GetAtt ExampleDBInstance.Endpoint.Address

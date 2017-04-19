@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  ExpirationInDays:
+    Description: The maximum amount of time to keep files for
+    Type: Number
+    Default: 2555
+  TransitionToInfrequentAccessInDays:
+    Description: How many days until files are moved to the Infrequent Access class
+    Type: Number
+    Default: 30
+  TransitionToGlacierInDays:
+    Description: How many days until files are moved to Glacier
+    Type: Number
+    Default: 60
+  PreviousVersionsExpirationInDays:
+    Description: The maximum amount of time to keep previous versions of files for
+    Type: Number
+    Default: 60
+  PreviousVersionsToInfrequentAccessInDays:
+    Description: How many days until previous versions of files are moved to the Infrequent Access class
+    Type: Number
+    Default: 30
+Resources:
+  BackupBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Status: Enabled
+            ExpirationInDays:
+              Ref: ExpirationInDays
+            Transitions:
+            - StorageClass: STANDARD_IA
+              TransitionInDays:
+                Ref: TransitionToInfrequentAccessInDays
+            - StorageClass: GLACIER
+              TransitionInDays:
+                Ref: TransitionToGlacierInDays
+            NoncurrentVersionExpirationInDays:
+              Ref: PreviousVersionsExpirationInDays
+            NoncurrentVersionTransitions:
+            - StorageClass: STANDARD_IA
+              TransitionInDays:
+                Ref: PreviousVersionsToInfrequentAccessInDays
+Outputs:
+  BackupBucket:
+    Description: Bucket where backups are stored
+    Value:
+      Ref: BackupBucket

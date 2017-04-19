@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Mappings:
+  AWSRegion2AMI: # Latest OpenVPN AMI at time of publishing: 2.1.4
+    us-east-1:
+      AMI: ami-bc3566ab
+    us-east-2:
+      AMI: ami-10306a75
+    us-west-2:
+      AMI: ami-d3e743b3
+    us-west-1:
+      AMI: ami-4a02492a
+    eu-west-1:
+      AMI: ami-f53d7386
+    eu-central-1:
+      AMI: ami-ad1fe6c2
+    ap-southeast-1:
+      AMI: ami-a859ffcb
+    ap-northeast-1:
+      AMI: ami-e9da7c88
+    ap-southeast-2:
+      AMI: ami-89477aea
+    sa-east-1:
+      AMI: ami-0c069b60
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC where load balancer and instance will launch
+  SubnetId:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnet where OpenVPN server will launch (pick at least 1)
+  InstanceType:
+    Type: String
+    Description: OpenVPN server instance type
+    Default: m3.medium
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 KeyPair for SSH access
+  AdminPassword:
+    Type: String
+    Description: Password for 'openvpn' user
+    Default: openvpn
+    NoEcho: true
+  AllowAccessFromCIDR:
+    Type: String
+    Description: IP range/address to allow VPN connections from
+    Default: "0.0.0.0/0"
+Resources:
+  VPNSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Inbound access to OpenVPN server
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+      - CidrIp: !Ref AllowAccessFromCIDR
+        FromPort: 443
+        IpProtocol: tcp
+        ToPort: 443
+      - CidrIp: !Ref AllowAccessFromCIDR
+        FromPort: 22
+        IpProtocol: tcp
+        ToPort: 22
+      - CidrIp: !Ref AllowAccessFromCIDR
+        FromPort: 1194
+        IpProtocol: udp
+        ToPort: 1194
+  OpenVPNInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [ AWSRegion2AMI, !Ref "AWS::Region", AMI ]
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref VPNSecurityGroup
+          SubnetId: !Select [ 0, Ref: SubnetId ]
+      Tags:
+        - Key: Name
+          Value: example-openvpn-server
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            public_hostname=openvpn
+            admin_user=openvpn
+            admin_pw=${admin_pw}
+            reroute_gw=1
+            reroute_dns=1
+          - admin_pw: !Ref AdminPassword
+Outputs:
+  OpenVPNAdministration:
+    Value:
+      Fn::Join:
+        - ""
+        - - https://
+          - !GetAtt OpenVPNInstance.PublicIp
+          - /admin/
+    Description: Admin URL for OpenVPN server
+  OpenVPNClientLogin:
+    Value:
+      Fn::Join:
+        - ""
+        - - https://
+          - !GetAtt OpenVPNInstance.PublicIp
+          - /
+    Description: Client login URL for OpenVPN server
+  OpenVPNServerIPAddress:
+    Value: !GetAtt OpenVPNInstance.PublicIp
+    Description: IP address for OpenVPN server
+# ssh user: openvpnas (if necessary)
+# 1. Go to admin control panel: https://<ip-or-hostname-of-vpn-server>/admin
+# 2. Add a vpn user.
+# 3. Change password for openvpn user (even if supplied as parameter)
+# 4. Server Network Settings -> Hostname or IP address
+# 5. Go to user login: https://<ip-or-hostname-of-vpn-server>/
+# 6. Login or connect.
+# 7. To access your other instances you'll need to allow connections from the VPN Security Group created in this recipe.

@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: AMI ID to launch instances from
+    Default: ami-9be6f38c
+  VPCID:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC where load balancer and instance will launch
+  SubnetIDs:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets where load balancer and instance will launch (pick at least 2)
+Resources:
+  ExampleELBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for example ELB
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          CidrIp: 0.0.0.0/0
+          FromPort: 80
+          ToPort: 80
+  ExampleEC2InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for example Instance
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          SourceSecurityGroupName:
+            Ref: ExampleELBSecurityGroup
+          FromPort: 80
+          ToPort: 80
+  ExampleEC2InstanceIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: tcp
+      SourceSecurityGroupName:
+        Ref: ExampleEC2InstanceSecurityGroup
+      GroupName:
+        Ref: ExampleEC2InstanceSecurityGroup
+      FromPort: 22
+      ToPort: 22
+  ExampleLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets: 
+        - Fn::Select: [ 0, Ref: SubnetIDs ]
+        - Fn::Select: [ 1, Ref: SubnetIDs ]
+      SecurityGroups:
+        - Fn::GetAtt: ExampleELBSecurityGroup.GroupId
+  ExampleListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn:
+        Ref: ExampleLoadBalancer
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn:
+            Ref: ExampleTargetGroup
+      Port: 80
+      Protocol: HTTP
+  ExampleTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties: 
+      Port: 80
+      Protocol: HTTP
+      VpcId:
+        Ref: VPCID
+      Targets:
+        - Id:
+            Ref: ExampleEC2Instance
+  ExampleEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.nano
+      UserData:
+        Fn::Base64:
+          Fn::Sub: |
+            #!/bin/bash -ex
+            yum install -y nginx
+            service nginx start
+            exit 0
+      ImageId:
+        Ref: AmiId
+      SecurityGroupIds:
+        - Fn::GetAtt: ExampleEC2InstanceSecurityGroup.GroupId
+      SubnetId: 
+        Fn::Select: [ 0, Ref: SubnetIDs ]
+Outputs:
+  ExampleEC2InstanceHostname:
+    Value:
+      Fn::GetAtt: [ ExampleEC2Instance, PublicDnsName ]
+  ExampleELBURL:
+    Value:
+      Fn::Join:
+        - ''
+        - [ 'http://', { 'Fn::GetAtt': [ ExampleLoadBalancer, DNSName ] }, '/' ]

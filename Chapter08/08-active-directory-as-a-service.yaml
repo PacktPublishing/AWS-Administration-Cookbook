@@ -1,0 +1,35 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  FullyQualifiedName:
+    Description: The fully qualified name for the directory (e.g. megacorp.com)
+    Type: String
+    AllowedPattern: '^([a-zA-Z0-9]+[\\.-])+([a-zA-Z0-9])+$'
+  Password:
+    Description: The password for the directory Administrator
+    Type: String
+    NoEcho: true
+  VpcId:
+    Description: The ID of the VPC to deploy to
+    Type: AWS::EC2::VPC::Id
+  SubnetIds:
+    Description: Subnets where the directory will be deployed to (pick at least 2)
+    Type: List<AWS::EC2::Subnet::Id>
+  DirectorySize:
+    Description: The size of the directory to deploy
+    Type: String
+    AllowedValues: 
+      - Small
+      - Large
+
+Resources:
+  ExampleDirectory:
+    Type: AWS::DirectoryService::SimpleAD
+    Properties: 
+      Name: !Ref FullyQualifiedName
+      Password: !Ref Password
+      Size: !Ref DirectorySize
+      VpcSettings: 
+        SubnetIds: 
+          - !Select [ 0, Ref: SubnetIds ]
+          - !Select [ 1, Ref: SubnetIds ]
+        VpcId: !Ref VpcId

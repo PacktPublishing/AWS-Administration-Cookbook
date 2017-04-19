@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  OriginDomainName:
+    Description: The hostname of your origin (i.e. www.example.org.s3-website-ap-southeast-2.amazonaws.com)
+    Type: String
+  Aliases:
+    Description: Comma delimited list of aliases (i.e. example.org,www.example.org)
+    Type: CommaDelimitedList
+Resources:
+  DistributionALogBucket:
+    Type: AWS::S3::Bucket
+  DistributionA:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+        - DomainName:
+            Ref: OriginDomainName
+          Id: OriginA
+          CustomOriginConfig:
+            OriginProtocolPolicy: http-only
+        Enabled: true
+        Logging:
+          IncludeCookies: false
+          Bucket:
+            Fn::GetAtt: DistributionALogBucket.DomainName
+          Prefix: cf-distribution-a
+        Aliases:
+          Ref: Aliases
+        DefaultCacheBehavior:
+          TargetOriginId: OriginA
+          ForwardedValues:
+            QueryString: false
+          ViewerProtocolPolicy: allow-all
+        PriceClass: PriceClass_100
+Outputs:
+  DistributionDomainName:
+    Description: The domain name of the CloudFront Distribution
+    Value:
+      Fn::GetAtt: DistributionA.DomainName
+  LogBucket:
+    Description: Bucket where CloudFront logs will be stored
+    Value:
+      Ref: DistributionALogBucket

@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  ExampleTrailBucket:
+    Type: AWS::S3::Bucket
+  ExampleBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ExampleTrailBucket
+      PolicyDocument:
+        Statement:
+        - Sid: AWSCloudTrailAclCheck20150319
+          Effect: Allow
+          Principal:
+            Service: cloudtrail.amazonaws.com
+          Action: s3:GetBucketAcl
+          Resource: !Join
+            - ""
+            -
+              - "arn:aws:s3:::"
+              - !Ref ExampleTrailBucket
+        - Sid: AWSCloudTrailWrite20150319
+          Effect: Allow
+          Principal:
+            Service: cloudtrail.amazonaws.com
+          Action: s3:PutObject
+          Resource: !Join
+            - ""
+            -
+              - "arn:aws:s3:::"
+              - !Ref ExampleTrailBucket
+              - "/AWSLogs/"
+              - !Ref AWS::AccountId
+              - "/*"
+          Condition:
+            StringEquals:
+              s3:x-amz-acl: bucket-owner-full-control
+  ExampleTrail:
+    Type: AWS::CloudTrail::Trail
+    Properties:
+      EnableLogFileValidation: true
+      IncludeGlobalServiceEvents: true
+      IsLogging: true
+      IsMultiRegionTrail: true
+      S3BucketName: !Ref ExampleTrailBucket
+    DependsOn:
+      - ExampleTrailBucket
+      - ExampleBucketPolicy
+Outputs:
+  ExampleBucketName:
+    Value: !Ref ExampleTrailBucket
+    Description: Bucket where CloudTrail logs will be stored

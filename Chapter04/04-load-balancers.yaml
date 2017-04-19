@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  VPCID:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC where load balancer and instance will launch
+  SubnetIDs:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets where load balancer and instance will launch (pick at least 2)
+Mappings:
+  ELBAccountMap:
+    us-east-1:
+      ELBAccountID: 127311923021
+    ap-southeast-2:
+      ELBAccountID: 783225319266
+Resources:
+  ExampleLogBucket:
+    Type: AWS::S3::Bucket
+  ExampleBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: ExampleLogBucket
+      PolicyDocument:
+        Statement:
+          - Action:
+              - "s3:PutObject"
+            Effect: "Allow"
+            Resource:
+              Fn::Join:
+                - ""
+                -
+                  - "arn:aws:s3:::"
+                  - Ref: ExampleLogBucket
+                  - "/*"
+            Principal:
+              AWS:
+                Fn::FindInMap: [ ELBAccountMap, Ref: "AWS::Region", ELBAccountID ]
+  ExampleELBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for example ELB
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          CidrIp: 0.0.0.0/0
+          FromPort: 80
+          ToPort: 80
+  ExampleLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      LoadBalancerAttributes:
+        - Key: access_logs.s3.enabled
+          Value: true
+        - Key: access_logs.s3.bucket
+          Value:
+            Ref: ExampleLogBucket
+        - Key: idle_timeout.timeout_seconds
+          Value: 60
+      Scheme: internet-facing
+      Subnets:
+        - Fn::Select: [ 0, Ref: SubnetIDs ]
+        - Fn::Select: [ 1, Ref: SubnetIDs ]
+      SecurityGroups:
+        - Fn::GetAtt: ExampleELBSecurityGroup.GroupId
+  ExampleListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn:
+        Ref: ExampleLoadBalancer
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn:
+            Ref: ExampleTargetGroup
+      Port: 80
+      Protocol: HTTP
+  ExampleTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 80
+      Protocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: 80
+      HealthCheckPath: '/'
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 5
+      UnhealthyThresholdCount: 2
+      Matcher:
+        HttpCode: '200'
+      VpcId:
+        Ref: VPCID
+Outputs:
+  ExampleELBURL:
+    Value:
+      Fn::Join:
+        - ''
+        - [ 'http://', { 'Fn::GetAtt': [ ExampleLoadBalancer, DNSName ] }, '/' ]
+  ExampleLogBucket:
+    Value:
+      Ref: ExampleLogBucket

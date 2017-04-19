@@ -1,0 +1,40 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  EC2KeyName:
+    Type: String
+    Description: EC2 Key Pair to launch with
+Mappings:
+  RegionMap:
+    us-east-1:
+      AMIID: ami-9be6f38c
+    ap-southeast-2:
+      AMIID: ami-28cff44b
+Resources:
+  ExampleEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.nano
+      UserData:
+        Fn::Base64:
+          Fn::Sub: |
+            #!/bin/bash -ex
+            /opt/aws/bin/cfn-signal '${ExampleWaitHandle}'
+      ImageId:
+        Fn::FindInMap: [ RegionMap, Ref: 'AWS::Region', AMIID ]
+      KeyName:
+        Ref: EC2KeyName
+  ExampleWaitHandle:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Properties: {}
+  ExampleWaitCondition:
+    Type: AWS::CloudFormation::WaitCondition
+    DependsOn: ExampleEC2Instance
+    Properties:
+      Handle:
+        Ref: ExampleWaitHandle
+      Timeout: 600
+Outputs:
+  ExampleOutput:
+    Value:
+      Fn::GetAtt: ExampleWaitCondition.Data
+    Description: The data signaled with the WaitCondition
